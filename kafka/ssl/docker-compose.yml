@@ -1,0 +1,127 @@
+---
+version: '3'
+services:
+  zookeeper:
+    hostname: zookeeper
+    image: confluentinc/cp-zookeeper:4.1.1
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: WARN
+      KAFKA_JMX_PORT: 9586
+      KAFKA_JMX_OPTS: "$ZOOKEEPER_SERVER_OPTS -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.rmi.port=9586"
+    ports:
+      - 2181:2181
+      - 9586:9586
+    volumes:
+      - ./data/zoo1/zk-data:/var/lib/zookeeper/data
+      - ./data/zoo1/zk-txn-logs:/var/lib/zookeeper/log
+
+  kafka:
+    image: confluentinc/cp-kafka:4.1.1
+    hostname: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - 9092:9092
+      - 9587:9587
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: SSL://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.broker1.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: broker1_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: broker1_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.broker1.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: broker1_truststore_creds
+      KAFKA_SSL_ENABLED_PROTOCOLS: TLSv1.2,TLSv1.1,TLSv1
+      KAFKA_SECURITY_INTER_BROKER_PROTOCOL: SSL
+      KAFKA_JMX_PORT: 9587
+      KAFKA_JMX_OPTS: "-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.rmi.port=9587"
+    volumes:
+      - ./data/kaf1/kafka-data:/var/lib/kafka/data
+      - ./secrets:/etc/kafka/secrets
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:4.1.1
+    depends_on:
+      - zookeeper
+      - kafka
+    hostname: schema-registry
+    ports:
+      - 8081:8081
+      - 9588:9588
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: zookeeper:2181
+      SCHEMA_REGISTRY_HOST_NAME: http://schema-registry:8081
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: WARN
+      JMX_PORT: 9588
+      SCHEMA_REGISTRY_JMX_OPTS: "-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.rmi.port=9588"
+
+  lenses:
+      image: landoop/lenses:2.0
+      depends_on:
+        - zookeeper
+        - kafka
+        - schema-registry
+      environment:
+        LENSES_PORT: 9991
+        LENSES_KAFKA_BROKERS: SSL://kafka:9092
+
+        LENSES_KAFKA_SETTINGS_CONSUMER_SECURITY_PROTOCOL: SSL
+        LENSES_KAFKA_SETTINGS_CONSUMER_SSL_TRUSTSTORE_LOCATION: kafka.broker1.truststore.jks
+        LENSES_KAFKA_SETTINGS_CONSUMER_SSL_TRUSTSTORE_PASSWORD: javidev
+        LENSES_KAFKA_SETTINGS_CONSUMER_SSL_KEYSTORE_LOCATION: kafka.broker1.keystore.jks
+        LENSES_KAFKA_SETTINGS_CONSUMER_SSL_KEYSTORE_PASSWORD: javidev
+        LENSES_KAFKA_SETTINGS_CONSUMER_SSL_KEY_PASSWORD: javidev
+
+        LENSES_KAFKA_settings.producer.security.protocol: SSL
+        LENSES_KAFKA_SETTINGS_PRODUCER_SSL_TRUSTSTORE_LOCATION: kafka.broker1.truststore.jks
+        LENSES_KAFKA_SETTINGS_PRODUCER_SSL_TRUSTSTORE_PASSWORD: javidev
+        LENSES_KAFKA_SETTINGS_PRODUCER_SSL_KEYSTORE_LOCATION: kafka.broker1.keystore.jks
+        LENSES_KAFKA_SETTINGS_PRODUCER_SSL_KEYSTORE_PASSWORD: javidev
+        LENSES_KAFKA_SETTINGS_PRODUCER_SSL_KEY_PASSWORD: javidev
+
+        LENSES_KAFKA_settings.kstream.security.protocol: SSL
+        LENSES_KAFKA_SETTINGS_KSTREAM_SSL_TRUSTSTORE_LOCATION: kafka.broker1.truststore.jks
+        LENSES_KAFKA_SETTINGS_KSTREAM_SSL_TRUSTSTORE_PASSWORD: javidev
+        LENSES_KAFKA_SETTINGS_KSTREAM_SSL_KEYSTORE_LOCATION: kafka.broker1.keystore.jks
+        LENSES_KAFKA_SETTINGS_KSTREAM_SSL_KEYSTORE_PASSWORD: javidev
+        LENSES_KAFKA_SETTINGS_KSTREAM_SSL_KEY_PASSWORD: javidev
+
+        LENSES_ZOOKEEPER_HOSTS: |
+          [
+            {url:"zookeeper:2181", jmx:"zookeeper:9586"}
+          ]
+        LENSES_SCHEMA_REGISTRY_URLS: |
+          [
+            {url:"http://schema-registry:8081",jmx:"schema-registry:9588"}
+          ]
+        LENSES_SECURITY_MODE: BASIC
+        # Secrets can also be passed as files. Check _examples/
+        LENSES_SECURITY_GROUPS: |
+          [
+            {"name": "adminGroup", "roles": ["admin", "write", "read"]},
+            {"name": "readGroup",  "roles": ["read"]}
+          ]
+        LENSES_SECURITY_USERS: |
+          [
+            {"username": "admin", "password": "admin", "displayname": "Lenses Admin", "groups": ["adminGroup"]},
+            {"username": "read", "password": "read", "displayname": "Read Only", "groups": ["readGroup"]}
+          ]
+      ports:
+        - 9991:9991
+        - 9102:9102
+      volumes:
+        - ../lenses/license.json:/data/license.json
+
+networks:
+  default:
+    driver: bridge
